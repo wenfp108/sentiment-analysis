@@ -1,12 +1,12 @@
-name: Woonbot Sentinel
+name: Redditbot Sentinel (Turbo)
 
 on:
   schedule:
-    - cron: '43 */4 * * *'  # 每 4 小时一次 (UTC时间)
-  workflow_dispatch:       # 允许手动触发
+    - cron: '43 */4 * * *'  # 每 4 小时一次
+  workflow_dispatch:        # 允许手动触发
 
 permissions:
-  contents: write          # 必须权限：允许写入 JSON 回仓库
+  contents: write
 
 jobs:
   analyze-and-save:
@@ -16,23 +16,41 @@ jobs:
     - name: 📥 拉取代码
       uses: actions/checkout@v3
 
-    - name: 🐍 设置 Python
+    # 🔥【优化 1】开启 Python Pip 缓存
+    # 自动识别 requirements.txt，如果文件没变，直接从缓存恢复所有包
+    - name: 🐍 设置 Python (高速缓存版)
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
+        cache: 'pip' # 开启 pip 缓存
+        cache-dependency-path: streamlit-app/requirements.txt # 指定依赖路径
 
-    - name: 📦 安装依赖
+    # 🔥【优化 2】缓存 NLTK 语料库 (TextBlob)
+    # 避免每次都去跑 download_corpora
+    - name: 🧠 缓存 NLTK 数据
+      id: nltk-cache
+      uses: actions/cache@v3
+      with:
+        path: ~/nltk_data
+        key: ${{ runner.os }}-nltk-v1  # 简单的缓存 Key
+
+    - name: 📦 安装依赖 (极速模式)
       run: |
-        pip install requests                 # <--- 必须加这行，用于连GitHub API
+        # 1. 安装 Python 包 (有缓存时这一步会飞快)
+        pip install requests
         pip install -r streamlit-app/requirements.txt
-        python -m textblob.download_corpora
+
+        # 2. 处理语料库 (只有缓存没命中时才下载)
+        if [ ! -d "$HOME/nltk_data" ]; then
+          echo "📥 未检测到缓存，正在下载 NLTK 语料库..."
+          python -m textblob.download_corpora
+        else
+          echo "✅ NLTK 语料库已命中缓存，跳过下载！"
+        fi
 
     - name: 🤖 运行情绪分析
       env:
-        # 1. 你的 GitHub 私人令牌 (用于读 Issue)
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        
-        # 2. 你的 Reddit 爬虫密钥
         REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
         REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
         REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
@@ -43,7 +61,6 @@ jobs:
         git config --global user.name "Woonbot Action"
         git config --global user.email "woonbot@github.com"
         
-        # 检查文件是否变化
         if [[ -n $(git status -s) ]]; then
           git add sentiment_report.json
           git commit -m "🤖 Update sentiment report [skip ci]"
