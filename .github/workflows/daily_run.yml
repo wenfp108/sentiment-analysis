@@ -1,0 +1,53 @@
+name: Woonbot Sentinel
+
+on:
+  schedule:
+    - cron: '43 */4 * * *'  # 每 4 小时一次 (UTC时间)
+  workflow_dispatch:       # 允许手动触发
+
+permissions:
+  contents: write          # 必须权限：允许写入 JSON 回仓库
+
+jobs:
+  analyze-and-save:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 拉取代码
+      uses: actions/checkout@v3
+
+    - name: 🐍 设置 Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: 📦 安装依赖
+      run: |
+        pip install requests                 # <--- 必须加这行，用于连GitHub API
+        pip install -r streamlit-app/requirements.txt
+        python -m textblob.download_corpora
+
+    - name: 🤖 运行情绪分析
+      env:
+        # 1. 你的 GitHub 私人令牌 (用于读 Issue)
+        GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+        
+        # 2. 你的 Reddit 爬虫密钥
+        REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+        REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+        REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+      run: python headless_main.py
+
+    - name: 💾 提交结果
+      run: |
+        git config --global user.name "Woonbot Action"
+        git config --global user.email "woonbot@github.com"
+        
+        # 检查文件是否变化
+        if [[ -n $(git status -s) ]]; then
+          git add sentiment_report.json
+          git commit -m "🤖 Update sentiment report [skip ci]"
+          git push
+        else
+          echo "没有数据变化，跳过提交"
+        fi
