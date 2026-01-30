@@ -16,7 +16,6 @@ logger = setup_logger()
 
 # === 🏦 中央银行配置 ===
 COMMAND_REPO = "wenfp108/Central-Bank"
-# 🔥 [核心修改] 路径调整为 reddit/sentiment
 OUTPUT_ROOT = "reddit/sentiment"          
 POOL_SIZE = 15
 CHAMPION_COUNT = 5
@@ -82,8 +81,6 @@ def sync_to_central_bank(new_time_data):
     if not headers: return
 
     today_str = datetime.utcnow().strftime('%Y-%m-%d')
-    
-    # 🔥 远程路径: reddit/sentiment/2026-01-31.json
     remote_path = f"{OUTPUT_ROOT}/{today_str}.json"
     api_url = f"https://api.github.com/repos/{COMMAND_REPO}/contents/{remote_path}"
 
@@ -131,19 +128,6 @@ def sync_to_central_bank(new_time_data):
     except Exception as e:
         logger.error(f"❌ 上传失败: {e}")
 
-    # D. 本地留底
-    try:
-        # 本地也保持结构一致: data/reddit/sentiment/2026-01-31.json
-        # 注意: 本地我们通常存 data/ 下方便 debug，这里我加个前缀 data/
-        local_dir = os.path.join("data", OUTPUT_ROOT)
-        os.makedirs(local_dir, exist_ok=True)
-        local_file = os.path.join(local_dir, f"{today_str}.json")
-        
-        with open(local_file, 'w', encoding='utf-8') as f:
-            json.dump(daily_history, f, indent=4, ensure_ascii=False)
-        logger.info(f"💾 本地备份已生成: {local_file}")
-    except: pass
-
 def run_mission():
     missions = fetch_missions()
     if not missions:
@@ -157,6 +141,7 @@ def run_mission():
     for sub, kws in missions.items():
         try:
             logger.info(f"📡 扫描 r/{sub} ...")
+            # 关键：调用 pipeline 必须传 "Hot"
             df = top_posts_subreddit_pipeline(sub, POOL_SIZE, COMMENT_LIMIT, "Hot")
             if df.empty: continue
 
