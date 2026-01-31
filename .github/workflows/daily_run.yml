@@ -40,7 +40,9 @@ jobs:
         # 安装核心依赖
         pip install requests textblob praw transformers torch pandas numpy
         # 安装项目依赖 (如果有额外的)
-        pip install -r streamlit-app/requirements.txt
+        if [ -f "streamlit-app/requirements.txt" ]; then
+          pip install -r streamlit-app/requirements.txt
+        fi
         # 下载语料库 (有缓存时会自动跳过)
         if [ ! -d "$HOME/nltk_data" ]; then
           python -m textblob.download_corpora
@@ -57,9 +59,5 @@ jobs:
         REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
       run: python headless_main.py
       
-    - name: 📤 备份今日数据 (Artifact)
-      if: always() # 即使上面失败也尝试备份
-      uses: actions/upload-artifact@v4
-      with:
-        name: daily-sentiment-backup
-        path: "data/reddit/sentiment/*.json"
+    # ✂️ 已删除：原来的“备份今日数据”步骤
+    # 因为 headless_main.py 不会在本地生成文件，保留那一步会导致 Action 报错变红
