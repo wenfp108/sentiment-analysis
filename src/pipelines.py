@@ -1,56 +1,51 @@
-from datetime import datetime
 import pandas as pd
+from datetime import datetime
 from .get_reddit_data import get_post_data
 from .sentiment_analysis import get_sentiment
 from .text_processor import clean_text
-import json
-import os
+from .logger_config import setup_logger
 
-# 读取 Reddit Client 配置 (假设你原来的代码是这么初始化的)
-# 如果你原来的 pipelines.py 里有特殊的 reddit 初始化逻辑，请保留
-# 这里为了简洁，直接实例化 praw，你需要确保这里的鉴权逻辑和你项目里的一致
-import praw
-def get_reddit_instance():
-    # 尝试从环境变量读取 (GitHub Action 模式)
-    if os.environ.get("REDDIT_CLIENT_ID"):
-        return praw.Reddit(
-            client_id=os.environ.get("REDDIT_CLIENT_ID"),
-            client_secret=os.environ.get("REDDIT_CLIENT_SECRET"),
-            user_agent=os.environ.get("REDDIT_USER_AGENT")
-        )
-    # 或者从本地文件读取 (本地开发模式)
-    # ... (保留你原有的逻辑)
-    return None
+logger = setup_logger()
 
-reddit = get_reddit_instance()
-
+# 移除 PRAW 初始化，这在镜像站模式下不需要
 def convert_utc(utc_time):
     return datetime.utcfromtimestamp(utc_time)
 
 def top_posts_subreddit_pipeline(
     subreddit_name, post_limit, comment_limmit, posts_to_get="Hot"
 ):
-    # 透传 posts_to_get 参数
+    # 调用新的 get_post_data (它现在不需要 reddit 实例)
     post_data = get_post_data(
         subreddit_name=subreddit_name,
         post_limit=post_limit,
         comment_limmit=comment_limmit,
-        reddit=reddit, # 传入 reddit 实例
-        posts_to_get=posts_to_get, # <--- 关键修改
+        posts_to_get=posts_to_get,
     )
     
     df = pd.DataFrame(post_data)
-    if df.empty: return df
+    if df.empty: 
+        logger.warning(f"r/{subreddit_name} returned empty data.")
+        return df
 
-    df["all_text"] = df["title"] + df["selftext"]
-    df["clean_title"] = df["all_text"].apply(lambda x: clean_text(x))
+    # 这里的 selftext 已经是我们拼好的 "Title + Comments"
+    # 直接对它进行清洗和分析
+    df["clean_text"] = df["selftext"].apply(lambda x: clean_text(str(x)))
     
-    # 执行情绪分析
-    df = get_sentiment(df, "clean_title")
+    # 执行 BERT 情绪分析
+    # 注意：我们分析的是 clean_text (包含评论)，效果比只分析标题好
+    df = get_sentiment(df, "clean_text")
     
+    # 补充时间字段
     df["timestamp"] = df["created_utc"].apply(convert_utc)
-    df["year"] = df["timestamp"].dt.year
-    df["month"] = df["timestamp"].dt.month
-    df["day"] = df["timestamp"].dt.day
-
+    
+    # 计算 rank_score (热度 * 情绪动能)
+    # sentiment_clean_text_score 是 BERT 的置信度
+    # sentiment_clean_text_label 是 POSITIVE/NEGATIVE
+    
+    # 将 Label 转为数值：POSITIVE=1, NEGATIVE=-1
+    df['vibe_val'] = df.apply(
+        lambda x: x['sentiment_clean_text_score'] if x['sentiment_clean_text_label'] == 'POSITIVE' else -x['sentiment_clean_text_score'], 
+        axis=1
+    )
+    
     return df
