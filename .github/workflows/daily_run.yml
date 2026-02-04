@@ -1,4 +1,4 @@
-name: Woonbot Sentinel (Tor Edition)
+name: sentiment-analysis (Tor Edition)
 
 on:
   schedule:
