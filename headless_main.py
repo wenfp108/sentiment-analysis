@@ -54,10 +54,16 @@ def sync_to_central_bank(data_batch):
 
     now = datetime.now(timezone(timedelta(hours=8)))
     
-    # === 修改部分：文件名格式改为 2026-02-05-012338.json ===
+    # === 修改部分：既要文件夹，又要长文件名 ===
+    # 1. 制造文件夹路径 (YYYY/MM/DD)
+    folder_path = now.strftime('%Y/%m/%d')
+    
+    # 2. 制造文件名 (YYYY-MM-DD-HHMMSS.json)
     file_name = now.strftime('%Y-%m-%d-%H%M%S')
-    path = f"{OUTPUT_ROOT}/{file_name}.json"
-    # ====================================================
+    
+    # 3. 拼在一起！(reddit/sentiment/2026/02/05/2026-02-05-012338.json)
+    path = f"{OUTPUT_ROOT}/{folder_path}/{file_name}.json"
+    # ==========================================
     
     api_url = f"https://api.github.com/repos/{COMMAND_REPO}/contents/{path}"
     
