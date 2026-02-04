@@ -1,9 +1,9 @@
-name: sentiment-analysis (Tor Edition)
+name: Woonbot Sentinel (Backup Mode)
 
 on:
-  schedule:
-    - cron: '43 */4 * * *'  # 每 4 小时
-  workflow_dispatch:
+  workflow_dispatch:        # 建议只开手动，防止和 Serv00 冲突
+  # schedule:
+  #   - cron: '43 */4 * * *'  # 如果 Serv00 挂了，再把这个解开
 
 permissions:
   contents: read
@@ -11,7 +11,7 @@ permissions:
 jobs:
   analyze-and-sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 40  # ⚠️ 既然你允许慢，我把超时时间放宽到 40 分钟
+    timeout-minutes: 10  # 直连很快，不需要 40 分钟
 
     steps:
     - name: 📥 拉取代码
@@ -23,25 +23,7 @@ jobs:
         python-version: '3.9'
         cache: 'pip'
 
-    - name: 🧅 安装 Tor 洋葱路由 (核心武器)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y tor
-        
-        # 启动 Tor 服务
-        sudo service tor start
-        
-        # 等待 Tor 建立链路 (稍微久一点，确保连通)
-        echo "⏳ Waiting for Tor to bootstrap..."
-        sleep 20
-        
-        # 验证 Tor 是否在监听 9050 端口
-        if netstat -tuln | grep 9050; then
-            echo "✅ Tor is running on port 9050"
-        else
-            echo "❌ Tor failed to start"
-            exit 1
-        fi
+    # ❌ 删除了 "安装 Tor" 步骤
 
     - name: 🧠 缓存 HuggingFace 模型
       uses: actions/cache@v3
@@ -49,14 +31,15 @@ jobs:
         path: ~/.cache/huggingface
         key: ${{ runner.os }}-hf-v1
 
-    - name: ⚡ 安装依赖 (含 SOCKS 支持)
+    - name: ⚡ 安装依赖
       run: |
         pip install --upgrade pip
+        # 只装 CPU 版 PyTorch
         pip install torch --index-url https://download.pytorch.org/whl/cpu
         
-        # requests[socks]: 让 Python 能走 Tor 代理
-        # stem: 用于控制 Tor 切换 IP (虽然这次主要靠多镜像)
-        pip install requests[socks] stem pandas numpy transformers
+        # ❌ 删除了 requests[socks] 和 stem (不需要 Tor 支持)
+        # ❌ 删除了 transformers (如果为了轻量化，这里也可以不装，但为了兼容性可以留着)
+        pip install requests pandas numpy transformers
         
         # 安装 NLP 库
         pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
@@ -66,7 +49,7 @@ jobs:
       run: |
         python -m nltk.downloader stopwords punkt wordnet averaged_perceptron_tagger
 
-    - name: 🤖 运行脚本 (洋葱模式)
+    - name: 🤖 运行脚本
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       run: python headless_main.py
