@@ -71,7 +71,7 @@ def get_post_data(subreddit_name, post_limit=10, comment_limmit=5, reddit=None, 
         for child in children:
             try:
                 p = child['data']
-                time.sleep(0.2)
+                time.sleep(2)
                 comments = get_top_comments_text(p['id'])
                 cleaned_posts.append({
                     "title": p.get('title'),
