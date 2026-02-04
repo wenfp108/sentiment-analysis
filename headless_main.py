@@ -53,10 +53,12 @@ def sync_to_central_bank(data_batch):
     if not headers: return
 
     now = datetime.now(timezone(timedelta(hours=8)))
-    date_path = now.strftime('%Y/%m/%d')
-    time_str = now.strftime('%H%M%S')
     
-    path = f"{OUTPUT_ROOT}/{date_path}/{time_str}.json"
+    # === 修改部分：文件名格式改为 2026-02-05-012338.json ===
+    file_name = now.strftime('%Y-%m-%d-%H%M%S')
+    path = f"{OUTPUT_ROOT}/{file_name}.json"
+    # ====================================================
+    
     api_url = f"https://api.github.com/repos/{COMMAND_REPO}/contents/{path}"
     
     try:
