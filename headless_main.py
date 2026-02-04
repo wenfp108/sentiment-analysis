@@ -1,169 +1,151 @@
-import pandas as pd
-import json
-import logging
 import os
-import requests
+import json
 import base64
+import requests
 import numpy as np
-from datetime import datetime
-from textblob import TextBlob
+from datetime import datetime, timezone, timedelta
 
-# 引入项目现有模块
+# 引入项目模块
 from src.pipelines import top_posts_subreddit_pipeline
 from src.logger_config import setup_logger
 
 logger = setup_logger()
 
-# === 🏦 中央银行配置 ===
+# === 配置区 ===
 COMMAND_REPO = "wenfp108/Central-Bank"
-OUTPUT_ROOT = "reddit/sentiment"          
-POOL_SIZE = 15
-CHAMPION_COUNT = 5
-COMMENT_LIMIT = 20
+OUTPUT_ROOT = "reddit/sentiment" # 存到 Central Bank 的哪个文件夹
+POOL_SIZE = 10     # 抓每个论坛的前 10 贴
+COMMENT_LIMIT = 5  # (此参数在 get_reddit_data 内部已被固定为 3，但需保留传参)
 
 def get_github_headers():
-    token = os.environ.get("GITHUB_TOKEN")
+    token = os.environ.get("GITHUB_TOKEN") # 必须在 Action Secrets 里配好
     if not token:
-        logger.error("❌ 缺少 GITHUB_TOKEN，无法连接银行！")
+        logger.error("❌ GITHUB_TOKEN not found!")
         return None
     return {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github.v3+json",
-        "Content-Type": "application/json"
+        "Accept": "application/vnd.github.v3+json"
     }
 
 def fetch_missions():
-    """1. 领任务"""
+    """去 Central-Bank 的 Issue 区找任务"""
     headers = get_github_headers()
     if not headers: return {}
+    
     try:
-        url = f"https://api.github.com/repos/{COMMAND_REPO}/issues?state=open&per_page=100"
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
+        url = f"https://api.github.com/repos/{COMMAND_REPO}/issues?state=open"
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200: return {}
         
-        missions = {i['title'].lower().replace('[reddit]', '').strip(): 
-                    ([k.strip() for k in i.get('body', '').replace('，', ',').replace('\n', ',').split(',') if k.strip()] if i.get('body') else [])
-                    for i in resp.json() if '[reddit]' in i.get('title', '').lower()}
+        missions = {}
+        for issue in resp.json():
+            title = issue.get('title', '').lower()
+            # 识别标题带 [reddit] 的 Issue
+            if '[reddit]' in title:
+                # 提取 Body 里的关键词，用逗号分隔
+                sub_name = title.replace('[reddit]', '').strip()
+                keywords = issue.get('body', '').strip().split(',') if issue.get('body') else []
+                missions[sub_name] = keywords
         return missions
     except Exception as e:
-        logger.error(f"❌ 领任务失败: {e}")
+        logger.error(f"Fetch missions failed: {e}")
         return {}
 
-def analyze_vibe(comments):
-    if not comments: return 0.0
-    scores = [TextBlob(c.get('body', '')).sentiment.polarity for c in comments[:COMMENT_LIMIT] if c.get('body')]
-    return np.mean(scores) if scores else 0.0
-
-def detect_anomalies(current_posts, daily_history):
-    """2. 异动检测"""
-    history_map = {}
-    for entry in daily_history:
-        for sector in entry.get('data', []):
-            for p in sector.get('champions', []):
-                history_map[p['title']] = p['vibe']
-
-    for p in current_posts:
-        if p['title'] in history_map:
-            prev_vibe = history_map[p['title']]
-            delta = p['vibe'] - prev_vibe
-            if (prev_vibe > 0 and p['vibe'] < 0) or (prev_vibe < 0 and p['vibe'] > 0):
-                p['anomaly'] = {"type": "REVERSAL", "prev": round(prev_vibe, 3), "delta": round(delta, 3)}
-            elif abs(delta) > 0.4:
-                p['anomaly'] = {"type": "SHARP_DRIFT", "prev": round(prev_vibe, 3), "delta": round(delta, 3)}
-    return current_posts
-
-def sync_to_central_bank(new_time_data):
-    """
-    3. 银行同步协议 (Pull -> Merge -> Push)
-    目标路径: reddit/sentiment/2026-01-31.json
-    """
+def sync_to_central_bank(data_batch):
+    """把结果存回 Central-Bank"""
     headers = get_github_headers()
     if not headers: return
 
-    today_str = datetime.utcnow().strftime('%Y-%m-%d')
-    remote_path = f"{OUTPUT_ROOT}/{today_str}.json"
-    api_url = f"https://api.github.com/repos/{COMMAND_REPO}/contents/{remote_path}"
-
-    logger.info(f"🏦 正在连接中央银行，同步路径: {remote_path} ...")
-
-    # A. 侦查 (Pull)
-    daily_history = []
+    # 生成按天归档的文件名: reddit/sentiment/2026-02-04.json
+    now = datetime.now(timezone(timedelta(hours=8)))
+    date_str = now.strftime('%Y-%m-%d')
+    path = f"{OUTPUT_ROOT}/{date_str}.json"
+    
+    api_url = f"https://api.github.com/repos/{COMMAND_REPO}/contents/{path}"
+    
+    # 1. 先拉取当天的旧数据 (Pull)
+    existing_data = []
     sha = None
     try:
-        resp = requests.get(api_url, headers=headers, timeout=10)
+        resp = requests.get(api_url, headers=headers)
         if resp.status_code == 200:
-            file_data = resp.json()
-            sha = file_data['sha']
-            content_b64 = file_data['content']
-            daily_history = json.loads(base64.b64decode(content_b64).decode('utf-8'))
-            logger.info(f"✅ 成功拉取今日底稿: {len(daily_history)} 条记录")
-        else:
-            logger.info("🆕 今日首条数据，创建新账本")
-    except Exception as e:
-        logger.warning(f"⚠️ 拉取数据异常 (视为新文件): {e}")
-
-    # B. 融合 (Merge)
-    for sector in new_time_data['data']:
-        sector['champions'] = detect_anomalies(sector['champions'], daily_history)
+            file_info = resp.json()
+            sha = file_info['sha']
+            content = base64.b64decode(file_info['content']).decode('utf-8')
+            existing_data = json.loads(content)
+    except: pass
     
-    daily_history.append(new_time_data)
-
-    # C. 存证 (Push)
+    # 2. 合并新数据 (Merge)
+    # 这里的 data_batch 是一个包含 timestamp 和 data 列表的字典
+    existing_data.append(data_batch)
+    
+    # 3. 推送回去 (Push)
     try:
-        final_content = json.dumps(daily_history, indent=4, ensure_ascii=False)
-        final_b64 = base64.b64encode(final_content.encode('utf-8')).decode('utf-8')
+        new_content = json.dumps(existing_data, indent=2, ensure_ascii=False)
+        b64_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
         
         payload = {
-            "message": f"📊 Reddit Sentinel Update: {new_time_data['time']}",
-            "content": final_b64,
+            "message": f"🤖 Reddit Update: {now.strftime('%H:%M')}",
+            "content": b64_content,
             "branch": "main"
         }
-        if sha:
-            payload["sha"] = sha
-
-        put_resp = requests.put(api_url, headers=headers, json=payload, timeout=15)
-        put_resp.raise_for_status()
-        logger.info(f"🚀 上传成功！数据已存入: {remote_path}")
+        if sha: payload["sha"] = sha
         
+        requests.put(api_url, headers=headers, json=payload)
+        logger.info(f"✅ Data synced to {path}")
     except Exception as e:
-        logger.error(f"❌ 上传失败: {e}")
+        logger.error(f"Sync failed: {e}")
 
-def run_mission():
+def run():
+    # 1. 领任务
     missions = fetch_missions()
     if not missions:
-        logger.warning("💤 无任务")
+        logger.info("💤 No missions found in Issues.")
         return
-
-    logger.info(f"🛡️ Woonbot 启动... 目标: {len(missions)} 板块")
+        
+    logger.info(f"🛡️ Missions accepted: {list(missions.keys())}")
     
-    current_batch_data = []
-
-    for sub, kws in missions.items():
+    batch_results = []
+    
+    # 2. 执行任务
+    for sub, keywords in missions.items():
         try:
-            logger.info(f"📡 扫描 r/{sub} ...")
-            # 关键：调用 pipeline 必须传 "Hot"
+            # 调用 Pipeline
             df = top_posts_subreddit_pipeline(sub, POOL_SIZE, COMMENT_LIMIT, "Hot")
             if df.empty: continue
-
-            df['title_signed'] = df.apply(lambda x: -x['sentiment_clean_title_score'] if x.get('sentiment_clean_title_label') == 'NEGATIVE' else x['sentiment_clean_title_score'], axis=1)
-            df['vibe'] = (df['title_signed'] * 0.4) + (df['comments'].apply(analyze_vibe) * 0.6)
-            df['rank_score'] = (df['score'] / (df['score'].max() + 1)) * 0.6 + abs(df['vibe']) * 0.4
-            champions = df.sort_values(by='rank_score', ascending=False).head(CHAMPION_COUNT)
-
-            post_list = [{"title": r['title'], "vibe": round(r['vibe'], 3), "pop": int(r['score'])} for _, r in champions.iterrows()]
-
-            current_batch_data.append({
-                "sub": sub,
-                "sentiment": round(df['vibe'].mean(), 3),
+            
+            # 选出 Champion (得分最高的 5 个)
+            # rank_score = 基础热度(score) * 情绪强度(abs(vibe))
+            # 注意：vibe_val 在 pipeline 里已经算好了
+            df['rank_score'] = df['score'] * (df['vibe_val'].abs() + 0.1)
+            champions = df.sort_values('rank_score', ascending=False).head(5)
+            
+            post_list = []
+            for _, row in champions.iterrows():
+                post_list.append({
+                    "title": row['title'],
+                    "url": row['url'],
+                    "score": int(row['score']),
+                    "vibe": float(row['vibe_val']), # 情绪分
+                    "summary": row['clean_text'][:100] # 摘要
+                })
+            
+            batch_results.append({
+                "subreddit": sub,
+                "avg_sentiment": float(df['vibe_val'].mean()),
                 "champions": post_list
             })
-        except Exception as e: logger.error(f"Error {sub}: {e}")
-
-    if current_batch_data:
-        sync_to_central_bank({
-            "time": datetime.utcnow().strftime('%H:%M'),
-            "data": current_batch_data
-        })
+            
+        except Exception as e:
+            logger.error(f"Failed to process r/{sub}: {e}")
+            
+    # 3. 上传结果
+    if batch_results:
+        payload = {
+            "timestamp": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+            "data": batch_results
+        }
+        sync_to_central_bank(payload)
 
 if __name__ == "__main__":
-    run_mission()
+    run()
