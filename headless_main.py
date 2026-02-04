@@ -52,47 +52,37 @@ def fetch_missions():
         return {}
 
 def sync_to_central_bank(data_batch):
-    """把结果存回 Central-Bank"""
+    """把结果作为增量文件存回 Central-Bank"""
     headers = get_github_headers()
     if not headers: return
 
-    # 生成按天归档的文件名: reddit/sentiment/2026-02-04.json
+    # === 🔥 核心修改：生成唯一的时间戳文件名 ===
+    # 格式：reddit/sentiment/2026/02/04/120000.json
     now = datetime.now(timezone(timedelta(hours=8)))
-    date_str = now.strftime('%Y-%m-%d')
-    path = f"{OUTPUT_ROOT}/{date_str}.json"
+    date_path = now.strftime('%Y/%m/%d')
+    time_str = now.strftime('%H%M%S')
     
+    path = f"{OUTPUT_ROOT}/{date_path}/{time_str}.json"
     api_url = f"https://api.github.com/repos/{COMMAND_REPO}/contents/{path}"
     
-    # 1. 先拉取当天的旧数据 (Pull)
-    existing_data = []
-    sha = None
+    # 直接 Push (上传)，不需要 Pull (拉取旧数据)
     try:
-        resp = requests.get(api_url, headers=headers)
-        if resp.status_code == 200:
-            file_info = resp.json()
-            sha = file_info['sha']
-            content = base64.b64decode(file_info['content']).decode('utf-8')
-            existing_data = json.loads(content)
-    except: pass
-    
-    # 2. 合并新数据 (Merge)
-    # 这里的 data_batch 是一个包含 timestamp 和 data 列表的字典
-    existing_data.append(data_batch)
-    
-    # 3. 推送回去 (Push)
-    try:
-        new_content = json.dumps(existing_data, indent=2, ensure_ascii=False)
-        b64_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+        # 将本次数据包转为 JSON 列表格式，方便 Refinery 统一处理
+        final_content = json.dumps([data_batch], indent=2, ensure_ascii=False)
+        b64_content = base64.b64encode(final_content.encode('utf-8')).decode('utf-8')
         
         payload = {
-            "message": f"🤖 Reddit Update: {now.strftime('%H:%M')}",
+            "message": f"🤖 Reddit Incremental: {now.strftime('%H:%M:%S')}",
             "content": b64_content,
             "branch": "main"
         }
-        if sha: payload["sha"] = sha
         
-        requests.put(api_url, headers=headers, json=payload)
-        logger.info(f"✅ Data synced to {path}")
+        resp = requests.put(api_url, headers=headers, json=payload)
+        if resp.status_code in [200, 201]:
+            logger.info(f"✅ Data synced to {path}")
+        else:
+            logger.error(f"❌ Upload failed: {resp.status_code} {resp.text}")
+            
     except Exception as e:
         logger.error(f"Sync failed: {e}")
 
@@ -115,8 +105,8 @@ def run():
             if df.empty: continue
             
             # 选出 Champion (得分最高的 5 个)
-            # rank_score = 基础热度(score) * 情绪强度(abs(vibe))
-            # 注意：vibe_val 在 pipeline 里已经算好了
+            # rank_score = 基础热度(score) * 情绪强度(abs(vibe) + 0.1)
+            # 增加 0.1 是为了防止 vibe 为 0 时 score 被抹平
             df['rank_score'] = df['score'] * (df['vibe_val'].abs() + 0.1)
             champions = df.sort_values('rank_score', ascending=False).head(5)
             
@@ -146,6 +136,8 @@ def run():
             "data": batch_results
         }
         sync_to_central_bank(payload)
+    else:
+        logger.info("⚠️ No data fetched this run.")
 
 if __name__ == "__main__":
     run()
