@@ -1,4 +1,4 @@
-name: Woonbot Sentinel (Direct-Sync)
+name: sentiment-analysis
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # 允许手动触发
 
 permissions:
-  contents: read  # 只需要读取当前仓库的代码
+  contents: read
 
 jobs:
   analyze-and-sync:
@@ -16,21 +16,12 @@ jobs:
     - name: 📥 拉取代码
       uses: actions/checkout@v3
 
-    - name: 🐍 设置 Python (高速缓存)
+    - name: 🐍 设置 Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
         cache: 'pip'
-        cache-dependency-path: '**/requirements.txt'
 
-    # 缓存 NLTK 数据，防止每次都下载，加快运行速度
-    - name: 🧠 缓存 NLTK 数据
-      uses: actions/cache@v3
-      with:
-        path: ~/nltk_data
-        key: ${{ runner.os }}-nltk-v2
-
-    # 缓存 HuggingFace 模型 (DistilBERT)，这个很大，必须缓存
     - name: 🧠 缓存 HuggingFace 模型
       uses: actions/cache@v3
       with:
@@ -39,23 +30,26 @@ jobs:
 
     - name: 📦 安装依赖
       run: |
-        # 1. 升级 pip
         python -m pip install --upgrade pip
         
-        # 2. 安装核心依赖 (去掉了 praw，保留了计算和AI库)
-        # requests: 抓取镜像站 + 上传 Github
-        # transformers/torch: 运行 BERT 情绪模型
-        # textblob/nltk: 文本清洗和基础情绪
-        pip install requests pandas numpy textblob transformers torch
+        # 1. 安装核心计算库
+        pip install requests pandas numpy transformers torch
         
-        # 3. 补充下载 NLTK 语料库 (用于 text_processor 清洗)
-        python -m textblob.download_corpora
-        python -m nltk.downloader stopwords wordnet punkt
+        # 2. 安装文本处理库 (修复报错的关键)
+        # contractions: 修复 "No module named contractions"
+        # emoji: 修复潜在的 "No module named emoji"
+        # spacy: 修复 "No module named spacy"
+        pip install textblob nltk contractions emoji spacy
+        
+        # 3. 下载 Spacy 语言模型 (非常重要，否则会报找不到 en_core_web_sm)
+        python -m spacy download en_core_web_sm
+
+    - name: 📥 下载 NLTK 语料库
+      run: |
+        # 下载代码中需要的 NLTK 数据包
+        python -m nltk.downloader stopwords punkt wordnet averaged_perceptron_tagger
 
     - name: 🤖 运行并同步至银行
       env:
-        # ✅ 唯一需要的密钥：用于上传 JSON 到 Central-Bank
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        
-        # ❌ 已删除 REDDIT_CLIENT_ID 等密钥，不再需要
       run: python headless_main.py
