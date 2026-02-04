@@ -1,8 +1,8 @@
-name: sentiment-analysis
+name: sentiment-analysis (Fast & Fix)
 
 on:
   schedule:
-    - cron: '43 */4 * * *'  # 每 4 小时 (UTC时间)
+    - cron: '43 */4 * * *'  # 每 4 小时
   workflow_dispatch:        # 允许手动触发
 
 permissions:
@@ -16,40 +16,40 @@ jobs:
     - name: 📥 拉取代码
       uses: actions/checkout@v3
 
-    - name: 🐍 设置 Python
+    - name: 🐍 设置 Python (开启 pip 缓存)
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-        cache: 'pip'
+        cache: 'pip' # 👈 关键：自动缓存下次运行的依赖
 
     - name: 🧠 缓存 HuggingFace 模型
       uses: actions/cache@v3
       with:
         path: ~/.cache/huggingface
-        key: ${{ runner.os }}-huggingface-v1
+        key: ${{ runner.os }}-hf-v1
 
-    - name: 📦 安装依赖
+    - name: ⚡ 极速安装依赖
       run: |
-        python -m pip install --upgrade pip
+        pip install --upgrade pip
         
-        # 1. 安装核心计算库
-        pip install requests pandas numpy transformers torch
+        # 1. 🚀 核心加速：强制只安装 CPU 版 PyTorch (几十MB vs 几百MB)
+        # 这就是之前卡你 8 分钟的罪魁祸首
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
         
-        # 2. 安装文本处理库 (修复报错的关键)
-        # contractions: 修复 "No module named contractions"
-        # emoji: 修复潜在的 "No module named emoji"
-        # spacy: 修复 "No module named spacy"
+        # 2. 安装计算库
+        pip install requests pandas numpy transformers
+        
+        # 3. 安装文本库 (包含修复 contractions 缺失)
+        # 技巧：直接通过 URL 安装 spacy 模型，利用 pip 缓存，无需现场下载
+        pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
         pip install textblob nltk contractions emoji spacy
-        
-        # 3. 下载 Spacy 语言模型 (非常重要，否则会报找不到 en_core_web_sm)
-        python -m spacy download en_core_web_sm
 
-    - name: 📥 下载 NLTK 语料库
+    - name: 📥 补充 NLTK 数据
       run: |
-        # 下载代码中需要的 NLTK 数据包
+        # 下载清洗文本所需的小型语料库
         python -m nltk.downloader stopwords punkt wordnet averaged_perceptron_tagger
 
-    - name: 🤖 运行并同步至银行
+    - name: 🤖 运行脚本
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       run: python headless_main.py
