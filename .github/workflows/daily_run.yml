@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # 允许手动触发
 
 permissions:
-  contents: read  # 只需要读当前库
+  contents: read  # 只需要读取当前仓库的代码
 
 jobs:
   analyze-and-sync:
@@ -21,14 +21,16 @@ jobs:
       with:
         python-version: '3.9'
         cache: 'pip'
-        cache-dependency-path: streamlit-app/requirements.txt
+        cache-dependency-path: '**/requirements.txt'
 
+    # 缓存 NLTK 数据，防止每次都下载，加快运行速度
     - name: 🧠 缓存 NLTK 数据
       uses: actions/cache@v3
       with:
         path: ~/nltk_data
-        key: ${{ runner.os }}-nltk-v1
-    
+        key: ${{ runner.os }}-nltk-v2
+
+    # 缓存 HuggingFace 模型 (DistilBERT)，这个很大，必须缓存
     - name: 🧠 缓存 HuggingFace 模型
       uses: actions/cache@v3
       with:
@@ -37,27 +39,23 @@ jobs:
 
     - name: 📦 安装依赖
       run: |
-        # 安装核心依赖
-        pip install requests textblob praw transformers torch pandas numpy
-        # 安装项目依赖 (如果有额外的)
-        if [ -f "streamlit-app/requirements.txt" ]; then
-          pip install -r streamlit-app/requirements.txt
-        fi
-        # 下载语料库 (有缓存时会自动跳过)
-        if [ ! -d "$HOME/nltk_data" ]; then
-          python -m textblob.download_corpora
-        fi
+        # 1. 升级 pip
+        python -m pip install --upgrade pip
+        
+        # 2. 安装核心依赖 (去掉了 praw，保留了计算和AI库)
+        # requests: 抓取镜像站 + 上传 Github
+        # transformers/torch: 运行 BERT 情绪模型
+        # textblob/nltk: 文本清洗和基础情绪
+        pip install requests pandas numpy textblob transformers torch
+        
+        # 3. 补充下载 NLTK 语料库 (用于 text_processor 清洗)
+        python -m textblob.download_corpora
+        python -m nltk.downloader stopwords wordnet punkt
 
     - name: 🤖 运行并同步至银行
       env:
-        # ⚠️ 关键：这里必须使用 GH_PAT
+        # ✅ 唯一需要的密钥：用于上传 JSON 到 Central-Bank
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         
-        # Reddit 密钥
-        REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
-        REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
-        REDDIT_USER_AGENT: ${{ secrets.REDDIT_USER_AGENT }}
+        # ❌ 已删除 REDDIT_CLIENT_ID 等密钥，不再需要
       run: python headless_main.py
-      
-    # ✂️ 已删除：原来的“备份今日数据”步骤
-    # 因为 headless_main.py 不会在本地生成文件，保留那一步会导致 Action 报错变红
