@@ -1,9 +1,9 @@
-name: sentiment-analysis (Fast & Fix)
+name: Woonbot Sentinel (Tor Edition)
 
 on:
   schedule:
     - cron: '43 */4 * * *'  # 每 4 小时
-  workflow_dispatch:        # 允许手动触发
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,16 +11,37 @@ permissions:
 jobs:
   analyze-and-sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 40  # ⚠️ 既然你允许慢，我把超时时间放宽到 40 分钟
 
     steps:
     - name: 📥 拉取代码
       uses: actions/checkout@v3
 
-    - name: 🐍 设置 Python (开启 pip 缓存)
+    - name: 🐍 设置 Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-        cache: 'pip' # 👈 关键：自动缓存下次运行的依赖
+        cache: 'pip'
+
+    - name: 🧅 安装 Tor 洋葱路由 (核心武器)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tor
+        
+        # 启动 Tor 服务
+        sudo service tor start
+        
+        # 等待 Tor 建立链路 (稍微久一点，确保连通)
+        echo "⏳ Waiting for Tor to bootstrap..."
+        sleep 20
+        
+        # 验证 Tor 是否在监听 9050 端口
+        if netstat -tuln | grep 9050; then
+            echo "✅ Tor is running on port 9050"
+        else
+            echo "❌ Tor failed to start"
+            exit 1
+        fi
 
     - name: 🧠 缓存 HuggingFace 模型
       uses: actions/cache@v3
@@ -28,28 +49,24 @@ jobs:
         path: ~/.cache/huggingface
         key: ${{ runner.os }}-hf-v1
 
-    - name: ⚡ 极速安装依赖
+    - name: ⚡ 安装依赖 (含 SOCKS 支持)
       run: |
         pip install --upgrade pip
-        
-        # 1. 🚀 核心加速：强制只安装 CPU 版 PyTorch (几十MB vs 几百MB)
-        # 这就是之前卡你 8 分钟的罪魁祸首
         pip install torch --index-url https://download.pytorch.org/whl/cpu
         
-        # 2. 安装计算库
-        pip install requests pandas numpy transformers
+        # requests[socks]: 让 Python 能走 Tor 代理
+        # stem: 用于控制 Tor 切换 IP (虽然这次主要靠多镜像)
+        pip install requests[socks] stem pandas numpy transformers
         
-        # 3. 安装文本库 (包含修复 contractions 缺失)
-        # 技巧：直接通过 URL 安装 spacy 模型，利用 pip 缓存，无需现场下载
+        # 安装 NLP 库
         pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
         pip install textblob nltk contractions emoji spacy
 
     - name: 📥 补充 NLTK 数据
       run: |
-        # 下载清洗文本所需的小型语料库
         python -m nltk.downloader stopwords punkt wordnet averaged_perceptron_tagger
 
-    - name: 🤖 运行脚本
+    - name: 🤖 运行脚本 (洋葱模式)
       env:
         GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       run: python headless_main.py
