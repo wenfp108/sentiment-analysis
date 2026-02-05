@@ -1,3 +1,4 @@
+# === 这一部分是原作者写的（保留它，防止产生垃圾文件）===
 src/reddit_cred.json
 src/__pycache__
 project.log
@@ -6,3 +7,7 @@ src/aws_cred.json
 todo.txt
 post-producer/.env
 **.env
+
+# === 这一部分是你新增的（保护你的 Token）===
+run_bot.sh
+cron.log
