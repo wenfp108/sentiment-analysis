@@ -1,31 +1,38 @@
-  name: 🚀 Deploy to Serv00                                                                                                              
-                                                                                                                                         
-  on:                                                                                                                                    
-    push:                                                                                                                                
-      branches: [main]                                                                                                                   
-    workflow_dispatch:                                                                                                                   
-                                                                                                                                         
-  jobs:                                                                                                                                  
-    deploy:                                                                                                                              
-      runs-on: ubuntu-latest                                                                                                             
-      timeout-minutes: 5                                                                                                                 
-                                                                                                                                         
-      steps:                                                                                                                             
-        - name: 📤 Deploy via SSH                                                                                                        
-          uses: appleboy/ssh-action@v1                                                                                                   
-          with:                                                                                                                          
-            host: ${{ secrets.SERV00_HOST }}
-            username: ${{ secrets.SERV00_USER }}                                                                                         
-            password: ${{ secrets.SERV00_PASS }}                                                                                         
-            port: ${{ secrets.SERV00_PORT }}                                                                                             
-            script: |                                                                                                                    
-              if [ -d ~/sentiment-analysis/.git ]; then                                                                                  
-                cd ~/sentiment-analysis                                                                                                  
-                git pull origin main                        
-                echo "✅ git pull done"                                                                                                  
-              else                                                                                                                       
-                rm -rf ~/sentiment-analysis                                                                                              
-                git clone https://github.com/wenfp108/sentiment-analysis.git ~/sentiment-analysis                                        
-                echo "✅ git clone done"                                                                                                 
-              fi                                                                                                                         
-                   
+  name: 🚀 Deploy to Serv00                                 
+
+  on:
+    push:
+      branches: [main]
+    workflow_dispatch:
+
+  jobs:
+    deploy:
+      runs-on: ubuntu-latest
+      timeout-minutes: 5
+
+      steps:
+        - name: 📥 Checkout
+          uses: actions/checkout@v4
+
+        - name: 📤 Deploy via FTP
+          uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+          with:
+            server: ${{ secrets.SERV00_FTP_HOST }}
+            username: ${{ secrets.SERV00_FTP_USER }}
+            password: ${{ secrets.SERV00_FTP_PASS }}
+            local-dir: ./
+            server-dir: /sentiment-analysis/
+            exclude: |
+              .git/**
+              .github/**
+              screenshots/**
+              assets/**
+              docker-compose.yml
+              Dockerfile
+              **/Dockerfile
+              streamlit-app/**
+              reddit-producer/**
+              reddit-consumer/**
+              model-server/**
+              api/**
+              .pre-commit-config.yaml
