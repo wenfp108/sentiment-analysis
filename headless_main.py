@@ -2,7 +2,6 @@ import os
 import json
 import base64
 import requests
-import schedule
 import time
 from datetime import datetime, timezone, timedelta
 
@@ -10,6 +9,20 @@ from src.pipelines import top_posts_subreddit_pipeline
 from src.logger_config import setup_logger
 
 logger = setup_logger()
+
+
+def with_retry(fn, max_retries=3, label='request'):
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as err:
+            status = err.response.status_code if hasattr(err, 'response') and err.response else 'NO_RESPONSE'
+            logger.warning(f"⚠️ {label} failed ({status}) [{attempt}/{max_retries}]")
+            if attempt == max_retries:
+                raise
+            wait = 2 ** attempt
+            logger.info(f"💤 Retrying in {wait}s...")
+            time.sleep(wait)
 
 # === 配置区 ===
 COMMAND_REPO = "wenfp108/Central-Bank"
@@ -34,9 +47,14 @@ def fetch_missions():
     if not headers: return {}
     try:
         url = f"https://api.github.com/repos/{COMMAND_REPO}/issues?state=open"
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200: return {}
-        
+        resp = with_retry(
+            lambda: requests.get(url, headers=headers, timeout=10),
+            label='GitHub Issues API'
+        )
+        if resp.status_code != 200:
+            logger.error(f"❌ Issues API returned {resp.status_code}")
+            return {}
+
         missions = {}
         for issue in resp.json():
             title = issue.get('title', '').lower()
@@ -77,7 +95,10 @@ def sync_to_central_bank(data_batch):
             "branch": "main"
         }
         
-        resp = requests.put(api_url, headers=headers, json=payload)
+        resp = with_retry(
+            lambda: requests.put(api_url, headers=headers, json=payload),
+            label='GitHub Upload'
+        )
         if resp.status_code in [200, 201]:
             logger.info(f"✅ Data synced to {path}")
         else:

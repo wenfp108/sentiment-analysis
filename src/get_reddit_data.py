@@ -1,11 +1,7 @@
 import time
 import requests
 import random
-import urllib3
 from .logger_config import setup_logger
-
-# 禁用安全警告（因为我们要关闭 SSL 验证）
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = setup_logger()
 
@@ -19,49 +15,52 @@ MIRRORS = [
     'https://libreddit.bus-hit.me',
 ]
 
-def fetch_json(path):
+def fetch_json(path, max_retries=3):
     headers = {
-        # 伪装成 Google 爬虫或者非常普通的浏览器
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
-    
-    # 稍微打乱顺序
-    random.shuffle(MIRRORS)
 
-    # 优先尝试 old.reddit，因为它最不像爬虫目标
-    current_mirrors = sorted(MIRRORS, key=lambda x: 'old.reddit' not in x)
+    for attempt in range(max_retries):
+        # 每次重试打乱顺序
+        mirrors = list(MIRRORS)
+        random.shuffle(mirrors)
+        mirrors.sort(key=lambda x: 'old.reddit' not in x)
 
-    for mirror in current_mirrors:
-        try:
-            url = f"{mirror}{path}"
-            separator = '&' if '?' in url else '?'
-            url += f"{separator}t={int(time.time())}"
-            
-            # 官方源给长一点时间
-            timeout = 10 if 'reddit.com' in mirror else 5
-            
-            # 🔥 核心修改：verify=False (忽略 SSL 证书错误)
-            resp = requests.get(url, headers=headers, timeout=timeout, verify=False)
-            
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    if (isinstance(data, dict) and 'data' in data) or (isinstance(data, list) and len(data) > 0):
-                        return data
-                except:
-                    pass
-            elif resp.status_code == 429:
-                time.sleep(2) # 被限流了，歇会儿
-            else:
-                # 打印具体错误码，方便调试
-                logger.warning(f"⚠️ {mirror} returned {resp.status_code}")
-                
-        except Exception as e:
-            # 打印具体报错原因！
-            logger.warning(f"⚠️ Connect {mirror} failed: {str(e)[:50]}")
-            continue
-            
-    logger.error(f"❌ Failed to fetch {path} from all mirrors.")
+        for mirror in mirrors:
+            try:
+                url = f"{mirror}{path}"
+                separator = '&' if '?' in url else '?'
+                url += f"{separator}t={int(time.time())}"
+
+                timeout = 10 if 'reddit.com' in mirror else 5
+                resp = requests.get(url, headers=headers, timeout=timeout)
+
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        if (isinstance(data, dict) and 'data' in data) or (isinstance(data, list) and len(data) > 0):
+                            return data
+                    except (ValueError, KeyError) as e:
+                        logger.warning(f"⚠️ {mirror} JSON parse error: {e}")
+                elif resp.status_code == 429:
+                    logger.warning(f"⚠️ {mirror} rate limited (429)")
+                    time.sleep(2)
+                else:
+                    logger.warning(f"⚠️ {mirror} returned {resp.status_code}")
+
+            except requests.exceptions.Timeout:
+                logger.warning(f"⚠️ {mirror} timeout")
+            except requests.exceptions.ConnectionError as e:
+                logger.warning(f"⚠️ {mirror} connection error: {str(e)[:50]}")
+            except Exception as e:
+                logger.warning(f"⚠️ {mirror} unexpected error: {e}")
+
+        if attempt < max_retries - 1:
+            wait = 2 ** (attempt + 1)
+            logger.info(f"💤 All mirrors failed, retrying in {wait}s ({attempt+1}/{max_retries})...")
+            time.sleep(wait)
+
+    logger.error(f"❌ Failed to fetch {path} from all mirrors after {max_retries} attempts.")
     return None
 
 def get_top_comments_text(post_id):
@@ -74,7 +73,8 @@ def get_top_comments_text(post_id):
                 body = child.get('data', {}).get('body')
                 if body and body not in ['[deleted]', '[removed]']:
                     comments_list.append(body.replace('\n', ' ').strip())
-        except: pass
+        except Exception as e:
+            logger.warning(f"⚠️ Comment parse error: {e}")
     return " | ".join(comments_list)
 
 def get_post_data(subreddit_name, post_limit=10, comment_limmit=5, reddit=None, posts_to_get="Hot"):
@@ -109,6 +109,8 @@ def get_post_data(subreddit_name, post_limit=10, comment_limmit=5, reddit=None, 
                     "selftext": f"{p.get('title')} . {p.get('selftext', '')[:200]}",
                     "comments": []
                 })
-            except: continue
+            except Exception as e:
+                logger.warning(f"⚠️ Post parse error in r/{subreddit_name}: {e}")
+                continue
                 
     return cleaned_posts

@@ -8,7 +8,8 @@ logger = setup_logger()
 def analyze_sentiment(text):
     try:
         return TextBlob(str(text)).sentiment.polarity
-    except:
+    except Exception as e:
+        logger.warning(f"⚠️ Sentiment analysis failed: {e}")
         return 0.0
 
 def top_posts_subreddit_pipeline(subreddit_name, post_limit, comment_limmit, posts_to_get="Hot"):
@@ -33,7 +34,8 @@ def top_posts_subreddit_pipeline(subreddit_name, post_limit, comment_limmit, pos
         post['clean_text'] = full_text
         try:
             post['timestamp'] = datetime.utcfromtimestamp(post.get('created_utc', 0))
-        except:
+        except (TypeError, ValueError, OSError) as e:
+            logger.warning(f"⚠️ Timestamp parse error: {e}")
             post['timestamp'] = datetime.utcnow()
         
         processed_posts.append(post)
