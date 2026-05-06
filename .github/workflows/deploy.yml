@@ -1,0 +1,24 @@
+  name: 🚀 Deploy to Serv00                                                                                                              
+                                                                                                                                         
+  on:                                                                                                                                    
+    push:                                                                                                                                
+      branches: [main]                                                                                                                   
+    workflow_dispatch:                                                                                                                   
+                                                                                                                                         
+  jobs:                                                                                                                                  
+    deploy:                                                                                                                              
+      runs-on: ubuntu-latest                                                                                                             
+      timeout-minutes: 5                                                                                                                 
+                                                                                                                                         
+      steps:                                                                                                                             
+        - name: 📤 Deploy via SSH                                                                                                        
+          uses: appleboy/ssh-action@v1                                                                                                   
+          with:                                                                                                                          
+            host: ${{ secrets.SERV00_HOST }}                                                                                             
+            username: ${{ secrets.SERV00_USER }}                                                                                         
+            password: ${{ secrets.SERV00_PASS }}                                                                                         
+            port: ${{ secrets.SERV00_PORT || 22 }}                                                                                       
+            script: |                                                                                                                    
+              cd ~/sentiment-analysis                                                                                                    
+              git pull origin main                                                                                                       
+              echo "✅ Code updated on Serv00"
