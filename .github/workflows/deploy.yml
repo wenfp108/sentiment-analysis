@@ -14,11 +14,18 @@
         - name: 📤 Deploy via SSH                                                                                                        
           uses: appleboy/ssh-action@v1                                                                                                   
           with:                                                                                                                          
-            host: ${{ secrets.SERV00_HOST }}                                                                                             
+            host: ${{ secrets.SERV00_HOST }}
             username: ${{ secrets.SERV00_USER }}                                                                                         
             password: ${{ secrets.SERV00_PASS }}                                                                                         
-            port: ${{ secrets.SERV00_PORT || 22 }}                                                                                       
+            port: ${{ secrets.SERV00_PORT }}                                                                                             
             script: |                                                                                                                    
-              cd ~/sentiment-analysis                                                                                                    
-              git pull origin main                                                                                                       
-              echo "✅ Code updated on Serv00"
+              if [ -d ~/sentiment-analysis/.git ]; then                                                                                  
+                cd ~/sentiment-analysis                                                                                                  
+                git pull origin main                        
+                echo "✅ git pull done"                                                                                                  
+              else                                                                                                                       
+                rm -rf ~/sentiment-analysis                                                                                              
+                git clone https://github.com/wenfp108/sentiment-analysis.git ~/sentiment-analysis                                        
+                echo "✅ git clone done"                                                                                                 
+              fi                                                                                                                         
+                   
