@@ -69,8 +69,8 @@ rank_score = post_score × (|vibe_val| + 0.1)
 | 仓库 | 用途 |
 |------|------|
 | [sentiment-analysis](https://github.com/wenfp108/sentiment-analysis) | 本仓库。Reddit 采集 + 分析 |
-| [Central-Bank](https://github.com/wenfp108/Central-Bank) | 数据存储（Issues 指令 + 数据归档） |
-| [Refinery-Engine](https://github.com/wenfp108/refinery-erngine) | 下游：从 Central-Bank 读取 Reddit 数据做 AI 审计 |
+| Central-Bank（私有仓库） | 数据存储（Issues 指令 + 数据归档） |
+| [Refinery-Engine](https://github.com/wenfp108/refinery-engine) | 下游：从 Central-Bank 读取 Reddit 数据做 AI 审计 |
 
 ## 环境变量
 
